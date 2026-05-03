@@ -1,4 +1,4 @@
-// client/src/services/SupabaseService.js
+// client/src/services/SupabaseService.js - Fix login method
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -40,13 +40,63 @@ class SupabaseService {
 
   async login(mobile, password) {
     try {
-      console.log('Attempting login with mobile:', mobile);
+      console.log('Attempting login with mobile:', mobile, 'password length:', password?.length);
       
-      const { data, error } = await supabase
+      // First, check if the table has data
+      const { data: allUsers, error: countError } = await supabase
+        .from('users')
+        .select('count');
+      
+      console.log('Total users in database:', allUsers);
+      
+      // Try multiple query approaches
+      let data, error;
+      
+      // Approach 1: Exact match
+      const result1 = await supabase
         .from('users')
         .select('*')
         .eq('mobile', mobile)
         .eq('password', password);
+      
+      if (!result1.error && result1.data && result1.data.length > 0) {
+        data = result1.data;
+        error = null;
+      } else {
+        // Approach 2: Try with trim
+        const result2 = await supabase
+          .from('users')
+          .select('*')
+          .eq('mobile', mobile.trim())
+          .eq('password', password.trim());
+        
+        if (!result2.error && result2.data && result2.data.length > 0) {
+          data = result2.data;
+          error = null;
+        } else {
+          // Approach 3: Just check by mobile first to see if user exists
+          const result3 = await supabase
+            .from('users')
+            .select('*')
+            .eq('mobile', mobile);
+          
+          if (!result3.error && result3.data && result3.data.length > 0) {
+            const user = result3.data[0];
+            console.log('User found with mobile:', mobile);
+            console.log('Stored password:', user.password);
+            console.log('Provided password:', password);
+            
+            if (user.password === password) {
+              data = result3.data;
+              error = null;
+            } else {
+              throw new Error('Incorrect password');
+            }
+          } else {
+            throw new Error('User not found with this mobile number');
+          }
+        }
+      }
       
       if (error) {
         console.error('Supabase query error:', error);
@@ -58,6 +108,8 @@ class SupabaseService {
       }
       
       const user = data[0];
+      console.log('Login successful for user:', user.id);
+      
       this.setUserId(user.id);
       
       return { 
@@ -91,16 +143,20 @@ class SupabaseService {
         throw new Error('Mobile number already registered');
       }
       
-      // Insert new user
+      // Insert new user with exact field names matching the database schema
+      const insertData = {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        mobile: userData.mobile,
+        email: userData.email,
+        password: userData.password
+      };
+      
+      console.log('Inserting user data:', insertData);
+      
       const { data, error } = await supabase
         .from('users')
-        .insert([{
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          mobile: userData.mobile,
-          email: userData.email,
-          password: userData.password
-        }])
+        .insert([insertData])
         .select();
       
       if (error) {
@@ -120,7 +176,28 @@ class SupabaseService {
     }
   }
 
-  // ... rest of the methods remain the same as before
+  // Test method to check database connection and tables
+  async testConnection() {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, mobile')
+        .limit(5);
+      
+      if (error) {
+        console.error('Connection test failed:', error);
+        return { success: false, error: error.message };
+      }
+      
+      console.log('Connection test successful. Users found:', data);
+      return { success: true, users: data };
+    } catch (err) {
+      console.error('Connection test error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Rest of the methods remain the same...
   async getTasks() {
     const { data, error } = await supabase
       .from('tasks')
