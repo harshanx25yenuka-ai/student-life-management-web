@@ -101,5 +101,5 @@ A comprehensive academic management platform for university students to organize
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/student-life-organizer.git
+git clone https://github.com/harshanx25yenuka-ai/student-life-management-web
 cd student-life-organizer
