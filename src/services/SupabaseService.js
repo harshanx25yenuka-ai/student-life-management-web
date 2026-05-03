@@ -1,22 +1,22 @@
-// client/src/services/SupabaseService.js - Updated with proper headers
+// client/src/services/SupabaseService.js
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase credentials! Please check your .env file');
+  console.error('Missing Supabase credentials! Check your environment variables.');
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true
   },
   global: {
     headers: {
       'apikey': supabaseAnonKey,
-      'Authorization': `Bearer ${supabaseAnonKey}`,
     },
   },
 });
@@ -28,16 +28,20 @@ class SupabaseService {
 
   setUserId(userId) {
     this.currentUserId = userId;
+    localStorage.setItem('supabaseUserId', userId);
   }
 
   getUserId() {
+    if (!this.currentUserId) {
+      this.currentUserId = localStorage.getItem('supabaseUserId');
+    }
     return this.currentUserId;
   }
 
-  // ============ AUTH ============
   async login(mobile, password) {
     try {
-      // First try to find user with matching credentials
+      console.log('Attempting login with mobile:', mobile);
+      
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -45,19 +49,22 @@ class SupabaseService {
         .eq('password', password);
       
       if (error) {
-        console.error('Login error:', error);
+        console.error('Supabase query error:', error);
         throw new Error(error.message);
       }
       
       if (!data || data.length === 0) {
-        throw new Error('Invalid credentials');
+        throw new Error('Invalid mobile number or password');
       }
+      
+      const user = data[0];
+      this.setUserId(user.id);
       
       return { 
         user: { 
-          id: data[0].id, 
-          name: `${data[0].firstName} ${data[0].lastName}`, 
-          mobile: data[0].mobile 
+          id: user.id, 
+          name: `${user.firstName} ${user.lastName}`, 
+          mobile: user.mobile 
         } 
       };
     } catch (err) {
@@ -68,6 +75,8 @@ class SupabaseService {
 
   async register(userData) {
     try {
+      console.log('Attempting registration for mobile:', userData.mobile);
+      
       // Check if user exists
       const { data: existing, error: checkError } = await supabase
         .from('users')
@@ -79,10 +88,10 @@ class SupabaseService {
       }
       
       if (existing && existing.length > 0) {
-        throw new Error('Mobile already exists');
+        throw new Error('Mobile number already registered');
       }
       
-      // Create user
+      // Insert new user
       const { data, error } = await supabase
         .from('users')
         .insert([{
@@ -99,6 +108,11 @@ class SupabaseService {
         throw new Error(error.message);
       }
       
+      if (!data || data.length === 0) {
+        throw new Error('Registration failed - no data returned');
+      }
+      
+      console.log('Registration successful for user ID:', data[0].id);
       return { message: 'User registered successfully', userId: data[0].id };
     } catch (err) {
       console.error('Registration failed:', err);
@@ -106,12 +120,12 @@ class SupabaseService {
     }
   }
 
-  // ============ TASKS ============
+  // ... rest of the methods remain the same as before
   async getTasks() {
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
-      .eq('userId', this.currentUserId)
+      .eq('userId', this.getUserId())
       .order('dueDate', { ascending: true });
     
     if (error) throw error;
@@ -123,7 +137,7 @@ class SupabaseService {
       .from('tasks')
       .insert([{ 
         ...task, 
-        userId: this.currentUserId, 
+        userId: this.getUserId(), 
         status: 'pending', 
         reminded: false 
       }])
@@ -153,12 +167,11 @@ class SupabaseService {
     return { success: true };
   }
 
-  // ============ NOTES ============
   async getNotes() {
     const { data, error } = await supabase
       .from('notes')
       .select('*')
-      .eq('userId', this.currentUserId)
+      .eq('userId', this.getUserId())
       .order('createdAt', { ascending: false });
     
     if (error) throw error;
@@ -170,7 +183,7 @@ class SupabaseService {
       .from('notes')
       .insert([{ 
         ...note, 
-        userId: this.currentUserId, 
+        userId: this.getUserId(), 
         createdAt: new Date().toISOString() 
       }])
       .select();
@@ -189,12 +202,11 @@ class SupabaseService {
     return { success: true };
   }
 
-  // ============ SCHEDULES ============
   async getSchedules() {
     const { data, error } = await supabase
       .from('schedules')
       .select('*')
-      .eq('userId', this.currentUserId)
+      .eq('userId', this.getUserId())
       .order('day', { ascending: true });
     
     if (error) throw error;
@@ -206,7 +218,7 @@ class SupabaseService {
       .from('schedules')
       .insert([{ 
         ...schedule, 
-        userId: this.currentUserId, 
+        userId: this.getUserId(), 
         type: schedule.type || 'class' 
       }])
       .select();
@@ -225,12 +237,11 @@ class SupabaseService {
     return { success: true };
   }
 
-  // ============ EXAMS ============
   async getExams() {
     const { data, error } = await supabase
       .from('exams')
       .select('*')
-      .eq('userId', this.currentUserId)
+      .eq('userId', this.getUserId())
       .order('date', { ascending: true });
     
     if (error) throw error;
@@ -242,7 +253,7 @@ class SupabaseService {
       .from('exams')
       .insert([{ 
         ...exam, 
-        userId: this.currentUserId, 
+        userId: this.getUserId(), 
         reminded: false 
       }])
       .select();
@@ -261,12 +272,11 @@ class SupabaseService {
     return { success: true };
   }
 
-  // ============ STUDY PLANS ============
   async getStudyPlans() {
     const { data, error } = await supabase
       .from('study_plans')
       .select('*')
-      .eq('userId', this.currentUserId)
+      .eq('userId', this.getUserId())
       .order('day', { ascending: true });
     
     if (error) throw error;
@@ -278,7 +288,7 @@ class SupabaseService {
       .from('study_plans')
       .insert([{ 
         ...plan, 
-        userId: this.currentUserId 
+        userId: this.getUserId() 
       }])
       .select();
     
@@ -296,7 +306,6 @@ class SupabaseService {
     return { success: true };
   }
 
-  // ============ QUOTES ============
   async getRandomQuote() {
     const quotes = [
       { text: "The future depends on what you do today.", author: "Mahatma Gandhi" },
@@ -306,11 +315,7 @@ class SupabaseService {
       { text: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
       { text: "Study while others are sleeping; work while others are loafing.", author: "William A. Ward" },
       { text: "The only place where success comes before work is in the dictionary.", author: "Vidal Sassoon" },
-      { text: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" },
-      { text: "The expert in anything was once a beginner.", author: "Helen Hayes" },
-      { text: "Strive for progress, not perfection.", author: "Unknown" },
-      { text: "Your attitude, not your aptitude, will determine your altitude.", author: "Zig Ziglar" },
-      { text: "The beautiful thing about learning is that no one can take it away from you.", author: "B.B. King" }
+      { text: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" }
     ];
     
     return quotes[Math.floor(Math.random() * quotes.length)];
